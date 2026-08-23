@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgis/postgis:15-3.4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_password
+      POSTGRES_DB: police_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres_password@db:5432/police_db
+      # Supplied from the host shell or a .env file next to this
+      # docker-compose.yml (see .env.example at the project root). If
+      # left unset here, app/auth/security.py's own existing logic
+      # applies unchanged: refuses to start when ENVIRONMENT=production,
+      # otherwise falls back to a well-known INSECURE development secret
+      # with a loud warning. This line's only job is to make sure a
+      # real secret, if the deployer provides one, actually reaches the
+      # container -- previously it was not being forwarded at all.
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./web_dashboard
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    volumes:
+      - ./web_dashboard:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
