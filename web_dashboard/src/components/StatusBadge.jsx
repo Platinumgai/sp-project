@@ -22,6 +22,8 @@ const TONE_MAP = {
   cancelled: 'slate', failed: 'red',
   // RemoteCommand status
   sent: 'blue', executed: 'green', timeout: 'red',
+  // Live stream status
+  live: 'red', ended: 'slate',
 }
 
 const TONE_CLASSES = {

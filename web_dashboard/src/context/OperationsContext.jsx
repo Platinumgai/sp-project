@@ -6,6 +6,7 @@ import { listDevices } from '../api/devices.js'
 import { listAlerts } from '../api/alerts.js'
 import { listRecordings } from '../api/recordings.js'
 import { listAllCommands } from '../api/commands.js'
+import { listActiveLiveStreams } from '../api/liveStream.js'
 import { titleCase } from '../utils/format.js'
 
 const OperationsContext = createContext(null)
@@ -54,6 +55,11 @@ const COMMAND_TOUCHING_EVENTS = new Set([
   'command.cancelled',
 ])
 
+const LIVE_STREAM_TOUCHING_EVENTS = new Set([
+  'live_stream.started',
+  'live_stream.ended',
+])
+
 const ALERT_TOUCHING_EVENTS = new Set([
   'alert.created',
   'alert.updated',
@@ -73,6 +79,7 @@ export function OperationsProvider({ children }) {
   const [alerts, setAlerts] = useState([])
   const [recordings, setRecordings] = useState([])
   const [commands, setCommands] = useState([])
+  const [liveStreams, setLiveStreams] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [lastEvent, setLastEvent] = useState(null)
@@ -80,7 +87,7 @@ export function OperationsProvider({ children }) {
   // Coalesce bursts of related events (e.g. many chunk_uploaded messages
   // during an active recording) into a single refetch rather than one
   // network call per WebSocket message.
-  const pendingRefetch = useRef({ devices: false, alerts: false, recordings: false, commands: false })
+  const pendingRefetch = useRef({ devices: false, alerts: false, recordings: false, commands: false, liveStreams: false })
   const refetchTimer = useRef(null)
 
   const canSeeOperations = ['admin', 'control_room', 'station', 'constable'].includes(user?.role)
@@ -89,16 +96,18 @@ export function OperationsProvider({ children }) {
     setLoading(true)
     setError('')
     try {
-      const [d, a, r, c] = await Promise.all([
+      const [d, a, r, c, l] = await Promise.all([
         listDevices(),
         listAlerts({ limit: 100 }),
         listRecordings({ limit: 100 }),
         listAllCommands({ limit: 100 }),
+        listActiveLiveStreams().catch(() => []), // citizen role would 403 -- degrade gracefully
       ])
       setDevices(d)
       setAlerts(a)
       setRecordings(r)
       setCommands(c)
+      setLiveStreams(l)
     } catch (err) {
       setError(err?.message || 'Failed to load operational data')
     } finally {
@@ -117,13 +126,14 @@ export function OperationsProvider({ children }) {
     if (refetchTimer.current) return
     refetchTimer.current = setTimeout(async () => {
       const pending = pendingRefetch.current
-      pendingRefetch.current = { devices: false, alerts: false, recordings: false, commands: false }
+      pendingRefetch.current = { devices: false, alerts: false, recordings: false, commands: false, liveStreams: false }
       refetchTimer.current = null
       try {
         if (pending.devices) setDevices(await listDevices())
         if (pending.alerts) setAlerts(await listAlerts({ limit: 100 }))
         if (pending.recordings) setRecordings(await listRecordings({ limit: 100 }))
         if (pending.commands) setCommands(await listAllCommands({ limit: 100 }))
+        if (pending.liveStreams) setLiveStreams(await listActiveLiveStreams())
       } catch {
         // A transient refetch failure just means the UI stays at its last
         // known-good state until the next event triggers another attempt.
@@ -137,6 +147,7 @@ export function OperationsProvider({ children }) {
       if (DEVICE_TOUCHING_EVENTS.has(evt.event)) scheduleRefetch('devices')
       if (RECORDING_TOUCHING_EVENTS.has(evt.event)) scheduleRefetch('recordings')
       if (COMMAND_TOUCHING_EVENTS.has(evt.event)) scheduleRefetch('commands')
+      if (LIVE_STREAM_TOUCHING_EVENTS.has(evt.event)) scheduleRefetch('liveStreams')
       if (ALERT_TOUCHING_EVENTS.has(evt.event)) scheduleRefetch('alerts')
 
       if (NOTIFY_EVENTS.has(evt.event)) {
@@ -170,6 +181,7 @@ export function OperationsProvider({ children }) {
     alerts,
     recordings,
     commands,
+    liveStreams,
     counts,
     loading,
     error,
