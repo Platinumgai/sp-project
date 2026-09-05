@@ -7,9 +7,11 @@ import { useConstableLookup } from '../hooks/useConstableLookup.js'
 import { getDevice } from '../api/devices.js'
 import { listAlerts } from '../api/alerts.js'
 import { listDeviceCommands, issueCommand, cancelCommand } from '../api/commands.js'
+import { stopLiveStream } from '../api/liveStream.js'
 import { friendlyErrorMessage } from '../api/client.js'
 import { LoadingSkeleton, ErrorState, EmptyState, ConfirmDialog } from '../components/Primitives.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
+import LiveVideoView from '../components/LiveVideoView.jsx'
 import { canIssueCommands } from '../utils/roles.js'
 import { formatDateTime, titleCase } from '../utils/format.js'
 
@@ -38,7 +40,7 @@ export default function DeviceDetails() {
   const { id } = useParams()
   const { user } = useAuth()
   const { notify } = useToast()
-  const { recordings } = useOperations()
+  const { recordings, liveStreams = [] } = useOperations()
   const { label: constableLabel } = useConstableLookup()
 
   const [device, setDevice] = useState(null)
@@ -46,8 +48,9 @@ export default function DeviceDetails() {
   const [commands, setCommands] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [confirming, setConfirming] = useState(null) // 'start_recording' | 'stop_recording' | null
+  const [confirming, setConfirming] = useState(null) // 'start_recording' | 'stop_recording' | 'start_live_stream' | 'stop_live_stream' | null
   const [busy, setBusy] = useState(false)
+  const [watchingSessionId, setWatchingSessionId] = useState(null)
 
   async function load() {
     setLoading(true)
@@ -87,6 +90,20 @@ export default function DeviceDetails() {
     }
   }
 
+  async function handleStopLive(sessionId) {
+    setBusy(true)
+    try {
+      await stopLiveStream(sessionId)
+      notify('Live stream stopped', { tone: 'success' })
+      setWatchingSessionId(null)
+      setConfirming(null)
+    } catch (err) {
+      notify(friendlyErrorMessage(err), { tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleCancel(commandId) {
     try {
       await cancelCommand(commandId)
@@ -102,6 +119,7 @@ export default function DeviceDetails() {
   if (!device) return <EmptyState title="Device not found" />
 
   const deviceRecordings = recordings.filter((r) => r.device_id === id)
+  const liveSession = liveStreams.find((s) => s.device_id === id)
 
   return (
     <div className="space-y-6">
@@ -113,6 +131,54 @@ export default function DeviceDetails() {
         </div>
         <p className="mt-1 font-mono text-xs text-ink-500">{device.device_identifier}</p>
       </div>
+
+      <section className="panel p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-semibold text-ink-100">Live camera</h2>
+          {liveSession && <StatusBadge status="live" />}
+        </div>
+
+        {!liveSession && (
+          <>
+            <EmptyState title="Not currently live" />
+            {canIssueCommands(user?.role) && (
+              <button
+                onClick={() => setConfirming('start_live_stream')}
+                className="mt-3 rounded-lg bg-signal-red/15 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-signal-red/25"
+              >
+                Request live stream
+              </button>
+            )}
+          </>
+        )}
+
+        {liveSession && !watchingSessionId && (
+          <button
+            onClick={() => setWatchingSessionId(liveSession.id)}
+            className="rounded-lg bg-signal-blue/15 px-3 py-1.5 text-sm font-medium text-sky-300 hover:bg-signal-blue/25"
+          >
+            Watch live
+          </button>
+        )}
+
+        {liveSession && watchingSessionId === liveSession.id && (
+          <div className="max-w-xl">
+            <LiveVideoView sessionId={liveSession.id} onClose={() => setWatchingSessionId(null)} />
+          </div>
+        )}
+
+        {liveSession && canIssueCommands(user?.role) && (
+          <button
+            onClick={() => setConfirming('stop_live_stream')}
+            className="mt-3 rounded-lg bg-base-600/60 px-3 py-1.5 text-sm text-ink-100 hover:bg-base-600"
+          >
+            Stop live stream
+          </button>
+        )}
+        <p className="mt-2 text-xs text-ink-500">
+          Live only -- nothing here is ever recorded or stored.
+        </p>
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <section className="panel p-4 lg:col-span-2">
@@ -235,17 +301,27 @@ export default function DeviceDetails() {
 
       <ConfirmDialog
         open={!!confirming}
-        title={confirming === 'start_recording' ? 'Start emergency recording?' : 'Stop recording?'}
-        message={
-          confirming === 'start_recording'
-            ? `Send a START_RECORDING command to ${constableLabel(device.constable_id)}'s device? This will be sent immediately and the device must acknowledge it.`
-            : `Send a STOP_RECORDING command to ${constableLabel(device.constable_id)}'s device?`
+        title={
+          {
+            start_recording: 'Start emergency recording?',
+            stop_recording: 'Stop recording?',
+            start_live_stream: 'Request live camera stream?',
+            stop_live_stream: 'Stop live stream?',
+          }[confirming]
         }
-        confirmLabel="Send command"
+        message={
+          {
+            start_recording: `Send a START_RECORDING command to ${constableLabel(device.constable_id)}'s device? This will be sent immediately and the device must acknowledge it.`,
+            stop_recording: `Send a STOP_RECORDING command to ${constableLabel(device.constable_id)}'s device?`,
+            start_live_stream: `Send a START_LIVE_STREAM command to ${constableLabel(device.constable_id)}'s device? Their camera will turn on and be visible live -- nothing is recorded.`,
+            stop_live_stream: `Stop the live camera stream from ${constableLabel(device.constable_id)}'s device?`,
+          }[confirming]
+        }
+        confirmLabel={confirming === 'stop_live_stream' ? 'Stop stream' : 'Send command'}
         tone="danger"
         busy={busy}
         onCancel={() => setConfirming(null)}
-        onConfirm={() => handleIssueCommand(confirming)}
+        onConfirm={() => (confirming === 'stop_live_stream' ? handleStopLive(liveSession.id) : handleIssueCommand(confirming))}
       />
     </div>
   )
