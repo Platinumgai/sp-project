@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-base-950 text-ink-100 antialiased;
+  }
+  ::selection {
+    @apply bg-signal-blue/30;
+  }
+}
+
+@layer utilities {
+  .mono-id {
+    @apply font-mono text-xs tracking-tight text-ink-300;
+  }
+  .panel {
+    @apply bg-base-800 border border-base-600 rounded-xl shadow-panel;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-base-600 rounded-full;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

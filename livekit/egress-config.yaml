@@ -1,0 +1,11 @@
+# Config for the livekit-egress service in docker-compose.yml. api_key /
+# api_secret match livekit-server's --dev placeholder keys (devkey/secret --
+# also what app/routers/live_stream.py already uses via
+# LIVEKIT_API_KEY/LIVEKIT_API_SECRET), and ws_url/redis point at the other
+# two services on the same Compose network by service name.
+log_level: info
+api_key: devkey
+api_secret: secret
+ws_url: ws://livekit:7880
+redis:
+  address: redis:6379
